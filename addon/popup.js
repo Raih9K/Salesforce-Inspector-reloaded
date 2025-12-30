@@ -132,6 +132,7 @@ class App extends React.PureComponent {
       eventMonitorHref: "event-monitor.html?" + hostArg,
       fieldCreatorHref: "field-creator.html?" + hostArg,
       limitsHref: "limits.html?" + hostArg,
+      orgCompareHref: "org-compare.html?" + hostArg,
       latestNotesViewed:
         localStorage.getItem("latestReleaseNotesVersionViewed")
           === this.props.addonVersion || browser.extension.inIncognitoContext,
@@ -656,6 +657,23 @@ class App extends React.PureComponent {
                   className: "page-button slds-button slds-button_neutral",
                 },
                 h("span", {}, "Event ", h("u", {}, "M"), "onitor")
+              )
+            ),
+            h(
+              "div",
+              {
+                className:
+                "slds-col slds-size_1-of-1 slds-p-horizontal_xx-small slds-m-bottom_xx-small",
+              },
+              h(
+                "a",
+                {
+                  ref: "orgCompareBtn",
+                  href: "org-compare.html?" + hostArg,
+                  target: linkTarget,
+                  className: "page-button slds-button slds-button_neutral",
+                },
+                h("span", {}, h("u", {}, "O"), "rg Compare")
               )
             )
           ),
