@@ -4,92 +4,6 @@ import {sfConn, apiVersion} from "./inspector.js";
 import {PageHeader} from "./components/PageHeader.js";
 import {UserInfoModel, createSpinForMethod} from "./utils.js";
 
-// --- Legacy Constants and Globals ---
-const VIEW_SYSTEM_PERMISSION = "VIEW_SYSTEM_PERMISSION";
-const VIEW_OBJECT_PERMISSION = "VIEW_OBJECT_PERMISSION";
-const VIEW_FIELD_PERMISSION = "VIEW_FIELD_PERMISSION";
-const VIEW_LAYOUT_ASSIGN = "VIEW_LAYOUT_ASSIGN";
-const VIEW_CLASS_ACCESS = "VIEW_CLASS_ACCESS";
-const VIEW_PAGE_ACCESS = "VIEW_PAGE_ACCESS";
-const VIEW_TAB_ACCESS = "VIEW_TAB_ACCESS";
-const VIEW_APP_ACCESS = "VIEW_APP_ACCESS";
-const VIEW_ACCESS_RESTRICTION = "VIEW_ACCESS_RESTRICTION";
-const VIEW_PERMISSION_SET_GROUP = "VIEW_PERMISSION_SET_GROUP";
-const VIEW_PERMISSION_SET_ASSIGN = "VIEW_PERMISSION_SET_ASSIGN";
-
-const MODE_PROFILE = "MODE_PROFILE";
-const MODE_PERMISSION_SET = "MODE_PERMISSION_SET";
-const MODE_USER_SUMMARY = "MODE_USER_SUMMARY";
-const MODE_PERMISSION_SET_GROUP_SUMMARY = "MODE_PERMISSION_SET_GROUP_SUMMARY";
-
-const TYPE_MUTE = "Mute";
-
-var timer;
-var viewType = null;
-var table = null;
-var profileTable = null;
-var userTable = null;
-var mode = MODE_PROFILE;
-
-var parser = new URL(window.location.href);
-
-var sfHost = null;
-var href = parser.searchParams.get("href");
-
-// かなり暫定
-var sid = null;
-
-// loading表示用の取得対象オブジェクト
-var queryTargetObject;
-
-var filterColumns = {};
-var targetObject = null;
-var profileFields = {};
-
-var endPoint = "/services/data/v55.0";
-var queryEndPoint = endPoint + "/query/";
-var toolingQueryEndPoint = endPoint + "/tooling/query/";
-var orgName = null;
-
-// profile id => Profile
-var profiles = {};
-// prmissionSet id => Profile
-var profilesForPermissionSet = {};
-// object API Name => Object label
-var sobjects = {};
-
-// apexPages ID => ApexClass
-var apexPages = {};
-
-// ApexClass ID => ApexClass
-var apexClasses = {};
-
-// tab name => TabDefinition
-var tabDefinitions = {};
-
-// app name => AppDefinition
-var appDefinitions = {};
-
-//	var myDataTable = null;
-
-// layout ID => Layout
-var layouts = {};
-
-//	var records = [];
-
-//	var isProfileSelectorInitialized = false;
-
-// PermissionSet ID => label
-var permissionSetGroups = {};
-
-// User ID => User
-var users = {};
-
-// サマリ用
-var selectedUserId = null;
-var selectedPermissionSetId = null;
-// ------------------------------------
-
 const categories = [
   { id: "profiles", label: "Profiles", icon: "user_role", color: "#6ca1fb", group: "Security", description: "Compare User Permissions, Object Permissions, Field Permissions, and more between Profiles.", metaType: "Profile" },
   { id: "permSets", label: "Permission Sets", icon: "lock", color: "#f77e2e", group: "Security", description: "Compare System and Object permissions between Permission Sets.", metaType: "PermissionSet" },
@@ -142,11 +56,7 @@ class App extends React.Component {
       isLoading: false,
       filterText: "",
       showDiffOnly: false,
-      filterText: "",
-      showDiffOnly: false,
-      activeSubSections: [PROFILE_SECTIONS[0]], // Default to first Profile section (Single Select)
-      filterModalOpen: false,
-      hiddenColumns: []
+      activeSubSections: PROFILE_SECTIONS // Default to Profile sections
     };
     this.onCategorySelect = this.onCategorySelect.bind(this);
     this.loadAvailableItems = this.loadAvailableItems.bind(this);
@@ -161,8 +71,8 @@ class App extends React.Component {
 
   onCategorySelect(category) {
     let defaults = [];
-    if (category.id === "profiles") defaults = [PROFILE_SECTIONS[0]];
-    else if (category.id === "permSets") defaults = [PERM_SET_SECTIONS[0]];
+    if (category.id === "profiles") defaults = PROFILE_SECTIONS;
+    else if (category.id === "permSets") defaults = PERM_SET_SECTIONS;
     
     this.setState({ selectedCategory: category, selectedItems: [], availableItems: [], comparisonData: null, activeSubSections: defaults }, () => {
       this.loadAvailableItems(category.id);
@@ -178,82 +88,67 @@ class App extends React.Component {
     this.setState({ isLoading: true });
     
     try {
-        let items = [];
-        
         if (categoryId === "profiles") {
-             // 1. Fetch Profiles - Simplify to ensure success
-             const profById = {};
-             // Removing UserLicense.Name to be safe, can add back if needed or fetch separately
-             const pRes = await model.spinFor(sfConn.rest("/services/data/v" + apiVersion + "/query/?q=" + encodeURIComponent("SELECT Id, Name FROM Profile ORDER BY Name"))); 
-             
-             pRes.records.forEach(r => {
-                 profById[r.Id] = { ...r, Label: r.Name, License: "", ActiveCount: 0, InactiveCount: 0 };
-             });
+            // Reverted to SOQL because compareProfiles uses REST API which works best with Profile Names (e.g. System Administrator)
+            // and IDs, rather than Metadata API Names (e.g. Admin)
+        }
 
-             // 2. Fetch Counts (Grouped) - Wrap in try-catch to not block main items
-             try {
-                const cRes = await model.spinFor(sfConn.rest("/services/data/v" + apiVersion + "/query/?q=" + encodeURIComponent("SELECT ProfileId, IsActive, count(Id) cnt FROM User GROUP BY ProfileId, IsActive")));
-                cRes.records.forEach(r => {
-                    if (profById[r.ProfileId]) {
-                        if (r.IsActive) profById[r.ProfileId].ActiveCount = r.cnt;
-                        else profById[r.ProfileId].InactiveCount = r.cnt;
-                    }
-                });
-             } catch (e) {
-                 console.warn("Count fetch failed", e);
-             }
-             items = Object.values(profById);
-             
-        } else if (categoryId === "permSets") {
-             // 1. Fetch Perm Sets
-             const psById = {};
-             const psRes = await model.spinFor(sfConn.rest("/services/data/v" + apiVersion + "/query/?q=" + encodeURIComponent("SELECT Id, Name, Label FROM PermissionSet WHERE IsOwnedByProfile = false ORDER BY Label")));
-             
-             psRes.records.forEach(r => {
-                 psById[r.Id] = { ...r, Label: r.Label, ActiveCount: 0 };
-             });
+        let query = "";
+        
+        switch (categoryId) {
+            case "profiles":
+            case "fls":
+                query = "SELECT Id, Name FROM Profile ORDER BY Name";
+                break;
+            case "permSets":
+                query = "SELECT Id, Name, Label FROM PermissionSet WHERE IsOwnedByProfile = false ORDER BY Label";
+                break;
+            case "permSetGroups":
+                query = "SELECT Id, DeveloperName, MasterLabel FROM PermissionSetGroup ORDER BY MasterLabel";
+                break;
+            case "layouts":
+                // Tooling API for Layouts
+                query = "SELECT Id, Name, TableEnumOrId FROM Layout ORDER BY TableEnumOrId, Name";
+                break;
+            case "roles":
+                query = "SELECT Id, Name, DeveloperName FROM UserRole ORDER BY Name";
+                break;
+            case "groups":
+                query = "SELECT Id, Name, DeveloperName FROM Group WHERE Type = 'Regular' ORDER BY Name";
+                break;
+            case "objects":
+                query = "SELECT QualifiedApiName, Label FROM EntityDefinition ORDER BY Label";
+                break;
+            case "users":
+                query = "SELECT Id, Username, Name FROM User WHERE IsActive = true ORDER BY Name";
+                break;
+            case "audit":
+                // No items to pick
+                break;
+             // Sharing: tricky to list "Sharing Rules" as items. 
+             // Maybe list objects effectively? sharing is per object usually.
+             case "sharing":
+                query = "SELECT QualifiedApiName, Label FROM EntityDefinition ORDER BY Label";
+                break;
+        }
 
-             // 2. Fetch Active Assignment Counts
-             try {
-                 const cRes = await model.spinFor(sfConn.rest("/services/data/v" + apiVersion + "/query/?q=" + encodeURIComponent("SELECT PermissionSetId, count(Id) cnt FROM PermissionSetAssignment WHERE Assignee.IsActive = true GROUP BY PermissionSetId")));
-                 cRes.records.forEach(r => {
-                     if (psById[r.PermissionSetId]) {
-                         psById[r.PermissionSetId].ActiveCount = r.cnt;
-                     }
-                 });
-             } catch (e) {
-                  console.warn("Count fetch failed", e);
-             }
-             items = Object.values(psById);
-
-        } else {
-             // Standard Fetch for others 
-             let query = "";
-             switch (categoryId) {
-                // (Existing query options)
-                case "permSetGroups": query = "SELECT Id, DeveloperName, MasterLabel FROM PermissionSetGroup ORDER BY MasterLabel"; break;
-                case "layouts": query = "SELECT Id, Name, TableEnumOrId FROM Layout ORDER BY TableEnumOrId, Name"; break;
-                case "roles": query = "SELECT Id, Name, DeveloperName FROM UserRole ORDER BY Name"; break;
-                case "groups": query = "SELECT Id, Name, DeveloperName FROM Group WHERE Type = 'Regular' ORDER BY Name"; break;
-                case "objects": query = "SELECT QualifiedApiName, Label FROM EntityDefinition ORDER BY Label"; break;
-                case "users": query = "SELECT Id, Username, Name FROM User WHERE IsActive = true ORDER BY Name"; break;
-                case "sharing": query = "SELECT QualifiedApiName, Label FROM EntityDefinition ORDER BY Label"; break;
-             }
-
-             if (query) {
-                 let apiPath = categoryId === "layouts" ? "/tooling/query?q=" : "/query/?q=";
-                 const res = await model.spinFor(sfConn.rest("/services/data/v" + apiVersion + apiPath + encodeURIComponent(query)));
-                 items = res.records.map(r => {
+        if (query) {
+             let apiPath = categoryId === "layouts" ? "/tooling/query?q=" : "/query/?q=";
+             await model.spinFor(sfConn.rest("/services/data/v" + apiVersion + apiPath + encodeURIComponent(query)).then(res => {
+                 const records = res.records.map(r => {
                      let label = r.Label || r.MasterLabel || r.Name;
                      let name = r.QualifiedApiName || r.DeveloperName || r.Name;
-                     if (categoryId === "layouts") { label = `${r.TableEnumOrId} - ${r.Name}`; name = `${r.TableEnumOrId}-${r.Name}`; }
+                     if (categoryId === "layouts") {
+                        label = `${r.TableEnumOrId} - ${r.Name}`;
+                        name = `${r.TableEnumOrId}-${r.Name}`; 
+                     }
                      return { ...r, Label: label, Name: name };
                  });
-             }
+                 this.setState({ availableItems: records });
+             }));
+        } else if (categoryId === "audit") {
+             this.setState({ availableItems: [] });
         }
-        
-        this.setState({ availableItems: items });
-
     } catch (e) {
         console.error(e);
         alert("Error loading items: " + e.message);
@@ -270,66 +165,6 @@ class App extends React.Component {
      } else {
          this.setState({ selectedItems: selectedItems.filter(i => i.Id !== item.Id) });
      }
-  }
-
-  updateSelectedItems(items) {
-      this.setState({ selectedItems: items });
-  }
-
-  renderPickerTable(items) {
-      const { selectedCategory, selectedItems } = this.state;
-      const isProfile = selectedCategory.id === "profiles";
-      
-      const columns = [
-          { label: "Name", key: "Label", width: "300px" },
-          ...(isProfile ? [{ label: "License", key: "License", width: "200px" }] : []),
-          { label: "Active Users", key: "ActiveCount", width: "100px", align: "center" },
-          ...(isProfile ? [{ label: "Wait Users", key: "InactiveCount", width: "100px", align: "center" }] : [])
-      ];
-
-      return h("div", { style: { width: "100%" } },
-          // Toolbar
-          h("div", { className: "slds-m-bottom_x-small", style: { display: "flex", gap: "8px" } },
-              h("button", { className: "slds-button slds-button_neutral", onClick: () => this.updateSelectedItems(items) }, "Select All Filtered"),
-              h("button", { className: "slds-button slds-button_neutral", onClick: () => this.updateSelectedItems([]) }, "Deselect All"),
-               h("button", { 
-                  className: "slds-button slds-button_neutral", 
-                  onClick: () => {
-                      const activeOnly = items.filter(i => i.ActiveCount > 0);
-                      this.updateSelectedItems(activeOnly);
-                  }
-              }, `Select Only ${isProfile ? "Profiles" : "Perm Sets"} with Active Users`)
-          ),
-          // Table
-          h("table", { className: "slds-table slds-table_cell-buffer slds-table_bordered slds-table_fixed-layout" },
-              h("thead", {},
-                  h("tr", {},
-                      h("th", { style: { width: "40px" } }, ""), // Checkbox
-                      columns.map(c => h("th", { key: c.key, style: { width: c.width, textAlign: c.align || "left" } }, 
-                          h("div", { className: "slds-truncate", title: c.label }, c.label)
-                      ))
-                  )
-              ),
-              h("tbody", {},
-                  items.map(item => {
-                       const isSelected = !!selectedItems.find(i => i.Id === item.Id);
-                       return h("tr", { key: item.Id },
-                           h("td", {}, 
-                               h("div", { className: "slds-checkbox" },
-                                   h("input", { type: "checkbox", checked: isSelected, onChange: (e) => this.onItemSelect(e, item), id: `check-${item.Id}` }),
-                                   h("label", { className: "slds-checkbox__label", htmlFor: `check-${item.Id}` },
-                                       h("span", { className: "slds-checkbox_faux" })
-                                   )
-                               )
-                           ),
-                           columns.map(c => h("td", { key: c.key, style: { textAlign: c.align || "left" } }, 
-                               h("div", { className: "slds-truncate", title: item[c.key] }, item[c.key])
-                           ))
-                       );
-                  })
-              )
-          )
-      );
   }
 
   async onSimpleCompare() {
@@ -397,8 +232,6 @@ class App extends React.Component {
              await this.comparePermSetGroups(selectedItems);
          } else if (selectedCategory.id === "users") {
              await this.compareUsers(selectedItems);
-         } else if (selectedCategory.id === "roles") {
-             await this.processRoleMatrixComparison(selectedItems);
          } else {
              this.processGenericComparison(itemNames, allMetadata);
          }
@@ -637,7 +470,7 @@ class App extends React.Component {
               .map(f => f.name);
           
           const sysSelect = sysPermFields.join(", ");
-          const sysQuery = `SELECT Profile.Name, ${sysSelect} FROM PermissionSet WHERE ProfileId IN (${profileIdsString})`;
+          const sysQuery = `SELECT Profile.Name, ${sysSelect} FROM PermissionSet WHERE Profile.Name IN (${profileNamesString})`;
           const sysRes = await model.spinFor(sfConn.rest("/services/data/v" + apiVersion + "/query/?q=" + encodeURIComponent(sysQuery)));
           
           if (sysRes && sysRes.records) {
@@ -657,8 +490,7 @@ class App extends React.Component {
       
       // A. Object Permissions
       if (activeSubSections.includes("Object Permissions")) {
-          // Matching Legacy: select ParentId,SobjectType,PermissionsCreate,PermissionsRead,PermissionsEdit,PermissionsDelete,PermissionsViewAllRecords,PermissionsModifyAllRecords
-          const objQuery = `SELECT Parent.Profile.Name, SobjectType, PermissionsCreate, PermissionsRead, PermissionsEdit, PermissionsDelete, PermissionsViewAllRecords, PermissionsModifyAllRecords FROM ObjectPermissions WHERE Parent.ProfileId IN (${profileIdsString}) ORDER BY SobjectType`;
+          const objQuery = `SELECT Parent.Profile.Name, SobjectType, PermissionsRead, PermissionsCreate, PermissionsEdit, PermissionsDelete, PermissionsViewAllRecords, PermissionsModifyAllRecords FROM ObjectPermissions WHERE Parent.Profile.Name IN (${profileNamesString}) ORDER BY SobjectType`;
           const objRes = await model.spinFor(sfConn.rest("/services/data/v" + apiVersion + "/query/?q=" + encodeURIComponent(objQuery)));
           
           if (objRes && objRes.records) {
@@ -680,8 +512,7 @@ class App extends React.Component {
 
       // B. Field Permissions
       if (activeSubSections.includes("Field-Level Security")) {
-          // Matching Legacy: select ParentId, Field, SobjectType, PermissionsEdit, PermissionsRead
-          const fieldQuery = `SELECT Parent.Profile.Name, Field, SObjectType, PermissionsRead, PermissionsEdit FROM FieldPermissions WHERE Parent.ProfileId IN (${profileIdsString}) ORDER BY SObjectType, Field`;
+          const fieldQuery = `SELECT Parent.Profile.Name, Field, SObjectType, PermissionsRead, PermissionsEdit FROM FieldPermissions WHERE Parent.Profile.Name IN (${profileNamesString})`;
           const fieldRes = await model.spinFor(sfConn.rest("/services/data/v" + apiVersion + "/query/?q=" + encodeURIComponent(fieldQuery)));
           
            if (fieldRes && fieldRes.records) {
@@ -706,7 +537,7 @@ class App extends React.Component {
       if (activeSubSections.includes("App Settings")) neededSetupTypes.push("'TabSet'");
 
       if (neededSetupTypes.length > 0) {
-          const setupQuery = `SELECT SetupEntityId, SetupEntityType, SetupEntity.Name, Parent.Profile.Name FROM SetupEntityAccess WHERE Parent.ProfileId IN (${profileIdsString}) AND SetupEntityType IN (${neededSetupTypes.join(",")})`;
+          const setupQuery = `SELECT SetupEntityId, SetupEntityType, SetupEntity.Name, Parent.Profile.Name FROM SetupEntityAccess WHERE Parent.Profile.Name IN (${profileNamesString}) AND SetupEntityType IN (${neededSetupTypes.join(",")})`;
           const setupRes = await model.spinFor(sfConn.rest("/services/data/v" + apiVersion + "/query/?q=" + encodeURIComponent(setupQuery)));
           
           if (setupRes && setupRes.records) {
@@ -744,8 +575,7 @@ class App extends React.Component {
       // F. Tab Settings
       if (activeSubSections.includes("Tab Settings")) {
           try {
-              // Matching Legacy: select ParentId, Name, Visibility from PermissionSetTabSetting
-              const tabQuery = `SELECT Name, Visibility, Parent.Profile.Name FROM PermissionSetTabSetting WHERE Parent.ProfileId IN (${profileIdsString}) ORDER BY Name`;
+              const tabQuery = `SELECT Name, Visibility, Parent.Profile.Name FROM PermissionSetTabSetting WHERE Parent.Profile.Name IN (${profileNamesString})`;
                const tabRes = await model.spinFor(sfConn.rest("/services/data/v" + apiVersion + "/query/?q=" + encodeURIComponent(tabQuery)));
                if (tabRes && tabRes.records) {
                    tabRes.records.forEach(r => {
@@ -1178,17 +1008,16 @@ class App extends React.Component {
   }
 
   exportToCSV() {
-      const { comparisonData, hiddenColumns } = this.state;
+      const { comparisonData } = this.state;
       if (!comparisonData || !comparisonData.rows) return;
       
-      const visibleRows = comparisonData.rows.filter(r => !(hiddenColumns || []).includes(r));
-      let csv = "Section,Item,Sub-Item," + visibleRows.map(r => `"${r}"`).join(",") + "\n";
+      let csv = "Section,Item,Sub-Item," + comparisonData.rows.map(r => `"${r}"`).join(",") + "\n";
       
       comparisonData.sections.forEach(section => {
           section.keys.forEach(key => {
               section.subCols.forEach(sub => {
                   let row = `"${section.title}","${key}","${sub}"`;
-                  visibleRows.forEach(rName => {
+                  comparisonData.rows.forEach(rName => {
                       const d = section.getData(rName, key);
                       let val = d ? d[sub] : "";
                       if (val === true) val = "true";
@@ -1206,78 +1035,6 @@ class App extends React.Component {
       const a = document.createElement("a");
       a.href = url;
       a.download = `comparison_export_${new Date().toISOString().split('T')[0]}.csv`;
-      a.click();
-  }
-
-  exportToXLS() {
-      const { comparisonData, hiddenColumns } = this.state;
-      if (!comparisonData || !comparisonData.rows) return;
-
-      const visibleRows = comparisonData.rows.filter(r => !(hiddenColumns || []).includes(r));
-      const timestamp = new Date().toISOString();
-
-      let xml = '<?xml version="1.0"?>\n';
-      xml += '<?mso-application progid="Excel.Sheet"?>\n';
-      xml += '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet" xmlns:html="http://www.w3.org/TR/REC-html40">\n';
-      xml += ' <Styles>\n';
-      xml += '  <Style ss:ID="Default" ss:Name="Normal">\n';
-      xml += '   <Alignment ss:Vertical="Bottom"/>\n';
-      xml += '   <Borders/>\n';
-      xml += '   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#000000"/>\n';
-      xml += '   <Interior/>\n';
-      xml += '   <NumberFormat/>\n';
-      xml += '   <Protection/>\n';
-      xml += '  </Style>\n';
-      xml += '  <Style ss:ID="sHeader">\n';
-      xml += '   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#000000" ss:Bold="1"/>\n';
-      xml += '   <Interior ss:Color="#D9D9D9" ss:Pattern="Solid"/>\n';
-      xml += '  </Style>\n';
-      xml += ' </Styles>\n';
-      xml += ' <Worksheet ss:Name="Comparison">\n';
-      xml += '  <Table>\n';
-      
-      // Header Row
-      xml += '   <Row>\n';
-      xml += '    <Cell ss:StyleID="sHeader"><Data ss:Type="String">Section</Data></Cell>\n';
-      xml += '    <Cell ss:StyleID="sHeader"><Data ss:Type="String">Item</Data></Cell>\n';
-      xml += '    <Cell ss:StyleID="sHeader"><Data ss:Type="String">Sub-Item</Data></Cell>\n';
-      visibleRows.forEach(r => {
-          xml += `    <Cell ss:StyleID="sHeader"><Data ss:Type="String">${r}</Data></Cell>\n`;
-      });
-      xml += '   </Row>\n';
-
-      // Data Rows
-      comparisonData.sections.forEach(section => {
-          section.keys.forEach(key => {
-              section.subCols.forEach(sub => {
-                  xml += '   <Row>\n';
-                  xml += `    <Cell><Data ss:Type="String">${section.title}</Data></Cell>\n`;
-                  xml += `    <Cell><Data ss:Type="String">${key}</Data></Cell>\n`;
-                  xml += `    <Cell><Data ss:Type="String">${sub}</Data></Cell>\n`;
-                  
-                  visibleRows.forEach(rName => {
-                      const d = section.getData(rName, key);
-                      let val = d ? d[sub] : "";
-                      if (val === true) val = "TRUE";
-                      if (val === false) val = "FALSE";
-                      if (val === undefined || val === null) val = "";
-                      
-                      xml += `    <Cell><Data ss:Type="String">${val}</Data></Cell>\n`;
-                  });
-                  xml += '   </Row>\n';
-              });
-          });
-      });
-
-      xml += '  </Table>\n';
-      xml += ' </Worksheet>\n';
-      xml += '</Workbook>';
-
-      const blob = new Blob([xml], { type: "application/vnd.ms-excel" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `comparison_export_${timestamp.split('T')[0]}.xls`; // .xls for XML Spreadsheet 2003
       a.click();
   }
 
@@ -1412,40 +1169,43 @@ class App extends React.Component {
         const rowCount = filteredKeys.length;
 
         // Styles matching the user's design image
-        // Styles matching the user's design image (Updated)
         const sectionButtonStyle = (isActive) => ({
-            backgroundColor: isActive ? "#008a90" : "#fff", // Active: Teal, Inactive: White
-            color: isActive ? "white" : "#3e3e3c", // Active: White text, Inactive: Dark Grey
-            border: isActive ? "1px solid #008a90" : "1px solid #dddbda",
+            backgroundColor: isActive ? "#008a90" : "#0f6ecd", // Active: Teal, Inactive: Blue
+            color: "white",
+            border: "none",
             borderRadius: "4px",
-            padding: "4px 12px", // Compact padding
+            padding: "6px 16px",
             marginRight: "8px",
             marginBottom: "8px",
             fontSize: "0.85rem",
-            fontWeight: isActive ? "bold" : "normal",
+            fontWeight: "500",
             display: "inline-flex",
             alignItems: "center",
             cursor: "pointer",
-            transition: "all 0.1s",
-            boxShadow: "0 1px 2px rgba(0,0,0,0.05)"
+            transition: "background-color 0.1s",
+            boxShadow: isActive ? "inset 0 2px 4px rgba(0,0,0,0.2)" : "0 1px 2px rgba(0,0,0,0.1)"
         });
 
-        // Icon style removed as icons are removed from buttons
-
+        const iconStyle = {
+            width: "14px",
+            height: "14px",
+            marginRight: "8px",
+            fill: "white"
+        };
 
         const actionBtnStyle = (bgColor) => ({
              backgroundColor: bgColor,
              color: "white",
              border: "none",
              borderRadius: "4px",
-             padding: "0 10px", // Reduced padding
-             lineHeight: "26px", // Reduced height (Smaller)
-             fontSize: "0.75rem", // Reduced font size
+             padding: "0 16px",
+             lineHeight: "32px",
+             fontSize: "0.85rem",
              fontWeight: "500",
              cursor: "pointer",
              display: "inline-flex",
              alignItems: "center",
-             marginLeft: "6px"
+             marginLeft: "8px"
         });
 
         // Search Icon SVG (Restored)
@@ -1463,242 +1223,101 @@ class App extends React.Component {
                             style: sectionButtonStyle(currentTitle === s.title),
                             onClick: () => this.setState({ activeSectionTitle: s.title, tableFilter: "" })
                         }, 
+                           searchIcon,
                            s.title
                         )
                     )
                 )
             ),
             
-            // Filter Bar (White)
-            h("div", { className: "slds-p-around_small slds-border_bottom", style: { backgroundColor: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center" } },
-                
-                // Left: Filter Input Group
-                h("div", { style: { display: "flex", alignItems: "center" } },
-                   // Label removed strictly as requested
+            // Filter & Action Bar
+            h("div", { className: "slds-p-horizontal_small slds-p-vertical_x-small slds-border_bottom", style: { display: "flex", alignItems: "center", justifyContent: "space-between", backgroundColor: "#fff" } },
+               // Left: Filter Input Group
+               h("div", { style: { display: "flex", alignItems: "center", flex: 1, maxWidth: "600px" } },
+                   h("span", { style: { fontWeight: "bold", marginRight: "8px", fontSize: "0.9rem" } }, "Filter"),
                    
+                   // Input
                    h("input", { 
                         type: "text", 
-                        id: "searchCells", // Legacy ID
                         className: "slds-input", 
-                        style: { borderRadius: "4px", height: "30px", width: "220px", padding: "0 8px", border: "1px solid #dddbda" },
+                        style: { borderRadius: "4px", height: "32px", width: "200px", padding: "0 8px" },
                         value: tableFilter || "",
                         onChange: (e) => this.setState({ tableFilter: e.target.value })
                    }),
 
-                   // Clear 'X' Button (Circular)
-                   h("button", { 
+                   // Clear 'X' Button (Outside input)
+                   tableFilter && h("button", { 
                         className: "slds-button slds-button_icon",
-                        title: "Clear Filter",
                         onClick: () => this.setState({ tableFilter: "" }),
-                        style: { marginLeft: "8px", color: tableFilter ? "#706e6b" : "#dddbda", cursor: "pointer" }
+                        style: { marginLeft: "4px", color: "#b0adab" }
                     }, 
-                       h("svg", { className: "slds-button__icon", viewBox: "0 0 52 52", style: { width: "24px", height: "24px", fill: "currentColor" } }, 
+                       h("svg", { className: "slds-button__icon", viewBox: "0 0 52 52", style: { width: "20px", height: "20px", fill: "currentColor" } }, 
                            h("path", { d: "M26 2C12.7 2 2 12.7 2 26s10.7 24 24 24 24-10.7 24-24S39.3 2 26 2zm10.7 32.7c.4.4.4 1 0 1.4-.2.2-.5.3-.7.3s-.5-.1-.7-.3L26 27.4l-9.3 9.3c-.2.2-.5.3-.7.3s-.5-.1-.7-.3c-.4-.4-.4-1 0-1.4L24.6 26l-9.3-9.3c-.4-.4-.4-1 0-1.4.4-.4 1-.4 1.4 0l9.3 9.3 9.3-9.3c.4-.4 1-.4 1.4 0 .4.4.4 1 0 1.4L27.4 26l9.3 8.7z" })
                        )
                     ),
                    
-                   // Count Badge (Grey Oval)
+                   // Count Badge (Grey Pill)
                    h("span", { 
                        style: { 
                            backgroundColor: "#e0e0e0", 
-                           color: "#3e3e3c", 
+                           color: "#333", 
                            borderRadius: "1rem", 
                            padding: "2px 10px", 
                            fontSize: "0.80rem", 
                            fontWeight: "bold", 
-                           marginLeft: "8px",
-                           minWidth: "40px",
-                           textAlign: "center"
+                           marginLeft: "8px" 
                        } 
                    }, rowCount)
-                ),
+               ),
 
-                // Right: Actions
-                h("div", { style: { display: "flex", alignItems: "center" } },
-                   // Profile Filter Button (Compact Teal)
-                   h("button", { 
-                       style: actionBtnStyle("#008a90"), // Teal
-                       id: "filterProfileButton", 
-                       title: "Filter Profiles", 
-                       onClick: () => this.setState({ filterModalOpen: true }) 
-                   }, 
-                       h("svg", { className: "slds-button__icon slds-button__icon_left", style: { fill: "white", marginRight: "4px" }, viewBox: "0 0 52 52" }, 
-                           h("path", { d: "M48 6a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4c0 1.2.5 2.2 1.4 3l14.2 14.2v20.4c0 2.2 2.7 3.3 4.2 1.8l6.7-6.7c.6-.6 1-1.5 1-2.4V23.2L45.7 8.9A3.9 3.9 0 0 0 48 6z" })
-                       ),
+               // Right: Actions
+               h("div", { style: { display: "flex", alignItems: "center" } },
+                   h("button", { style: actionBtnStyle("#008a90") }, // Darker Teal for Profile Filter
+                       h("svg", { className: "slds-button__icon slds-button__icon_left", "aria-hidden": "true", style: { fill: "white" } }, h("use", { xlinkHref: "symbols.svg#filterList" })),
                        "Profile Filter"
                    ),
-                   // Export XLSX (Teal)
-                   h("button", { style: actionBtnStyle("#00b5ad"), id: "exportExcel", onClick: () => this.exportToXLS() }, 
-                       h("svg", { className: "slds-button__icon slds-button__icon_left", style: { fill: "white" }, viewBox: "0 0 52 52" }, 
-                           h("path", { d: "M28 25l-2.9-3h-2.1L28 25z M45 40H7c-1.7 0-3-1.3-3-3V11c0-1.7 1.3-3 3-3h26l15 15v17c0 1.7-1.3 3-3 3z M27.8 28.3c-.4-.4-.4-1.1 0-1.5l6-6.1c.4-.4 1.1-.4 1.5 0l.7.7c.4.4.4 1.1 0 1.5l-3.5 3.5h9.4c.6 0 1 .5 1 1v1c0 .6-.5 1-1 1h-9.4l3.5 3.5c.4.4.4 1.1 0 1.5l-.7.7c-.4.4-1.1.4-1.5 0l-6-5.8z M19 32h-8c-.6 0-1-.4-1-1v-8c0-.6.4-1 1-1h8c.6 0 1 .4 1 1v8c0 .6-.4 1-1 1zm-2-2v-4h-4v4h4z" })
-                       ),
+                   h("button", { style: actionBtnStyle("#00b5ad"), onClick: () => alert("XLSX Export not implemented yet") }, // Light Teal
+                       h("svg", { className: "slds-button__icon slds-button__icon_left", "aria-hidden": "true", style: { fill: "white" } }, h("use", { xlinkHref: "symbols.svg#download" })),
                        "Export XLSX"
                    ),
-                   // Export CSV (Teal)
-                   h("button", { style: actionBtnStyle("#00b5ad"), id: "exportCsv", onClick: () => this.exportToCSV() }, 
-                       h("svg", { className: "slds-button__icon slds-button__icon_left", style: { fill: "white" }, viewBox: "0 0 52 52" }, 
-                           h("path", { d: "M28 25l-2.9-3h-2.1L28 25z M45 40H7c-1.7 0-3-1.3-3-3V11c0-1.7 1.3-3 3-3h26l15 15v17c0 1.7-1.3 3-3 3z M27.8 28.3c-.4-.4-.4-1.1 0-1.5l6-6.1c.4-.4 1.1-.4 1.5 0l.7.7c.4.4.4 1.1 0 1.5l-3.5 3.5h9.4c.6 0 1 .5 1 1v1c0 .6-.5 1-1 1h-9.4l3.5 3.5c.4.4.4 1.1 0 1.5l-.7.7c-.4.4-1.1.4-1.5 0l-6-5.8z M19 32h-8c-.6 0-1-.4-1-1v-8c0-.6.4-1 1-1h8c.6 0 1 .4 1 1v8c0 .6-.4 1-1 1zm-2-2v-4h-4v4h4z" })
-                       ),
+                   h("button", { style: actionBtnStyle("#00b5ad"), onClick: () => this.exportToCSV() }, // Light Teal
+                       h("svg", { className: "slds-button__icon slds-button__icon_left", "aria-hidden": "true", style: { fill: "white" } }, h("use", { xlinkHref: "symbols.svg#download" })),
                        "Export CSV"
                    ),
-                   // Refresh Button (Teal Circle)
                    h("button", { 
                        className: "slds-button",
                        title: "Refresh",
-                       id: "reload",
                        onClick: this.onSimpleCompare,
                        style: { 
-                           width: "26px", height: "26px", borderRadius: "50%", backgroundColor: "#00b5ad", border: "none", // Smaller Circle
-                           display: "flex", alignItems: "center", justifyContent: "center", marginLeft: "6px", cursor: "pointer" 
+                           width: "32px", height: "32px", borderRadius: "50%", backgroundColor: "#00b5ad", border: "none", // Light Teal
+                           display: "flex", alignItems: "center", justifyContent: "center", marginLeft: "8px", cursor: "pointer" 
                        }
-                   }, h("svg", { style: { width: "14px", height: "14px", fill: "white" }, viewBox: "0 0 52 52"}, h("path", { d: "M43.6 15.6C39 8.5 31.4 4 23 4 10.9 4 1 13.9 1 26s9.9 22 22 22c8.4 0 16-4.5 20.6-11.6.3-.5.2-1.2-.4-1.5l-2.5-1.4c-.5-.3-1.1-.1-1.4.4C35.9 40 29.8 43 23 43c-9.4 0-17-7.6-17-17S13.6 9 23 9c6.8 0 12.9 3 16.2 8.1l-4.7 2.1c-.5.2-.7.8-.5 1.3l2.8 6.3c.2.5.8.7 1.3.5l6.3-2.8c.5-.2.7-.8.5-1.3l-2.1-4.7c-.1-.5-.7-.7-1.2-.5l-4.7 2.1z"})))
-                )
-             ),
+                   }, h("svg", { style: { width: "16px", height: "16px", fill: "white" }, viewBox: "0 0 52 52"}, h("path", { d: "M46.5 24C45.3 12.8 35.8 4 24.3 4 13.9 4 5.2 11.3 2.6 21.2l-1.9-.5c-.5-.1-1 .2-1.1.7l-.6 2.4c-.1.5.2 1 .7 1.1l2.4.6c.2.1.4.1.6 0 .3-.1.5-.3.6-.6C5.5 15.5 13.5 8.7 23 8.7c10.3 0 18.7 8.4 18.7 18.7 0 .5-.4 1-1 1h-5.2c-.8 0-1.2.9-.6 1.5l7 7c.4.4 1 .4 1.4 0l7-7c.6-.6.2-1.5-.6-1.5h-2.8z M5.5 27.6c.4-.4 1-.4 1.4 0l-7 7c-.6.6-.2 1.5.6 1.5h2.8c1.2 11.2 10.7 20 22.2 20 10.4 0 19.1-7.3 21.7-17.2l1.9.5c.5.1 1-.2 1.1-.7l.6-2.4c.1-.5-.2-1-.7-1.1l-2.4-.6c-.2-.1-.4-.1-.6 0-.3.1-.5.3-.6.6-2.2 9.4-10.2 16.2-19.7 16.2-10.3 0-18.7-8.4-18.7-18.7 0-.5.4-1 1-1h5.2c.8 0 1.2-.9.6-1.5l-7-7z"})))
+               )
+            ),
 
-             // Section Header Bar (Dark Grey)
-             h("div", { 
-                 style: { 
-                     backgroundColor: "#706e6b", 
-                     color: "white", 
-                     padding: "6px 12px", 
-                     fontWeight: "bold", 
-                     fontSize: "0.85rem",
-                     borderBottom: "1px solid #706e6b"
-                 } 
-             }, currentTitle),
+            // Section Header Bar (Grey)
+            h("div", { 
+                style: { 
+                    backgroundColor: "#706e6b", // Matches standard dark grey/slds-color
+                    color: "white", 
+                    padding: "8px 12px", 
+                    fontWeight: "bold", 
+                    fontSize: "0.9rem",
+                    borderBottom: "1px solid #dddbda"
+                } 
+            }, currentTitle),
 
             // Table Content
             h("div", { className: "slds-card__body slds-card__body_inner", style: { overflow: "auto", flex: 1, padding: 0 } },
-                this.renderTransposedTable(activeSection, comparisonData.rows.filter(r => !(this.state.hiddenColumns || []).includes(r)), filteredKeys)
-            ),
-             this.renderFilterModal()
+                this.renderTransposedTable(activeSection, comparisonData.rows, filteredKeys)
+            )
         );
-     } else if (comparisonData.type === "structured_profile") { 
-           return this.renderStructuredSection(comparisonData.sections[0], comparisonData.columns, 0); 
-     } else if (comparisonData.type === "role_matrix") {
-         return this.renderRolePermissionMatrix(comparisonData);
-     } else {
-         return this.renderGenericTable(comparisonData);
-     }
-  }
-
-  calculateRolePermissions(roleData) {
-      const roles = Object.keys(roleData);
-      const objectPermissions = new Set();
-      // Fields can be handled if needed, but for "Assets" view in screenshot, it looks like Object Permissions
-      // We keep fields in data just in case, or focus on Objects for now as per screenshot "ASSETS" (Object) view.
-      
-      roles.forEach(roleName => {
-          const role = roleData[roleName];
-          if (role.objects) {
-              Object.keys(role.objects).forEach(objApiName => objectPermissions.add(objApiName));
-          }
-      });
-      const sortedObjects = Array.from(objectPermissions).sort();
-
-      const matrix = {}; 
-      // matrix[objName][roleName] = { Read: true, ... }
-      
-      sortedObjects.forEach(obj => {
-          matrix[obj] = {};
-          roles.forEach(roleName => {
-               matrix[obj][roleName] = roleData[roleName].objects?.[obj] || {};
-          });
-      });
-
-      return {
-          type: "role_matrix",
-          rows: sortedObjects.map(o => ({ id: o, label: o })),
-          columns: roles.map(r => ({ id: r, label: r })),
-          matrix
-      };
-  }
-
-  renderRolePermissionMatrix(data) {
-       const { tableFilter } = this.state;
-       const { rows, columns, matrix } = data;
-       const filteredRows = rows.filter(r => r.label.toLowerCase().includes((tableFilter || "").toLowerCase()));
-
-       // Styles
-       const headerCellStyle = {
-           writingMode: "vertical-rl",
-           transform: "rotate(180deg)",
-           whiteSpace: "nowrap",
-           height: "140px",
-           padding: "10px 4px",
-           textAlign: "center",
-           verticalAlign: "bottom",
-           fontWeight: "bold",
-           fontSize: "0.9rem",
-           borderBottom: "1px solid #dddbda",
-           borderRight: "1px solid #dddbda",
-           backgroundColor: "#fff"
-       };
-       
-       const rowHeaderStyle = { padding: "8px", fontWeight: "bold", borderBottom: "1px solid #dddbda", backgroundColor: "#fff", width: "200px" };
-       const cellStyle = (isYes) => ({
-           textAlign: "center",
-           verticalAlign: "middle",
-           backgroundColor: isYes ? "#d0f0c0" : "#fadbd8", // Green / Red
-           color: "#3e3e3c",
-           borderBottom: "1px solid #dddbda",
-           borderRight: "1px solid #dddbda",
-           fontWeight: "500",
-           height: "30px",
-           minWidth: "40px"
-       });
-
-       const subRowLabelStyle = {
-           textAlign: "right",
-           padding: "4px 8px 4px 0",
-           fontWeight: "500",
-           fontSize: "0.85rem",
-           borderBottom: "1px solid #dddbda",
-           backgroundColor: "#fff"
-       };
-       
-       const actions = [
-           { key: "Read", label: "View" },
-           { key: "Create", label: "Add new" },
-           { key: "Edit", label: "Edit" },
-           { key: "Delete", label: "Delete" },
-           // { key: "ViewAll", label: "View All" }, // Optional based on screenshot density
-           // { key: "ModifyAll", label: "Modify All" }
-       ];
-
-       return h("div", { className: "slds-card", style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" } },
-             h("div", { className: "slds-card__body slds-card__body_inner", style: { overflow: "auto", flex: 1, padding: "10px" } },
-               h("table", { style: { borderCollapse: "collapse" } },
-                   h("thead", {},
-                       h("tr", {}, 
-                           h("th", { style: { ...headerCellStyle, writingMode: "horizontal-tb", transform: "none", textAlign: "center", verticalAlign: "middle", width: "250px" } }, 
-                               h("h2", { style: { fontSize: "1.1rem" } }, "ASSETS") // "Role / Group" is actually better label for top right
-                           ), 
-                           columns.map(col => h("th", { key: col.id, style: headerCellStyle }, col.label))
-                       )
-                   ),
-                   h("tbody", {},
-                       filteredRows.map(row => [
-                           // Object Header Row
-                           h("tr", { key: row.id, style: { backgroundColor: "#f3f2f2" } },
-                               h("td", { colSpan: columns.length + 1, style: { padding: "8px", fontWeight: "bold", borderBottom: "1px solid #dddbda" } }, row.label.toUpperCase())
-                           ),
-                           // Action Rows
-                           ...actions.map(action => 
-                               h("tr", { key: `${row.id}-${action.key}` },
-                                   h("td", { style: subRowLabelStyle }, action.label),
-                                   columns.map(col => {
-                                       const perm = matrix[row.id][col.id];
-                                       const val = perm ? perm[action.key] : false;
-                                       return h("td", { key: col.id, style: cellStyle(val) }, val ? "y" : "n");
-                                   })
-                               )
-                           )
-                       ])
-                   )
-               )
-             )
-       );
+    } else if (comparisonData.type === "structured_profile") { 
+          return this.renderStructuredSection(comparisonData.sections[0], comparisonData.columns, 0); 
+    } else {
+        return this.renderGenericTable(comparisonData);
+    }
   }
 
   renderTransposedTable(section, rowItems, filteredKeys) {
@@ -1717,11 +1336,11 @@ class App extends React.Component {
         h("thead", {},
             h("tr", {}, 
                 // Sticky Header for First Column (Field Label)
-                h("th", { style: { width: "250px", position: "sticky", top: 0, left: 0, zIndex: 10, backgroundColor: "#e2e2e2", borderBottom: "1px solid #c9c7c5", boxShadow: "2px 0 5px -2px rgba(0,0,0,0.1)", color: "#3e3e3c", fontWeight: "bold" } }, 
+                h("th", { style: { width: "250px", position: "sticky", top: 0, left: 0, zIndex: 10, backgroundColor: "#f3f2f2", borderBottom: "1px solid #dddbda", boxShadow: "2px 0 5px -2px rgba(0,0,0,0.1)" } }, 
                     h("div", { className: "slds-truncate", title: "Field Label" }, "Field Label")
                 ),
                 // Sticky Header for Second Column (API Name)
-                h("th", { style: { width: "220px", position: "sticky", top: 0, left: "250px", zIndex: 10, backgroundColor: "#e2e2e2", borderBottom: "1px solid #c9c7c5", boxShadow: "2px 0 5px -2px rgba(0,0,0,0.1)", color: "#3e3e3c", fontWeight: "bold" } }, 
+                h("th", { style: { width: "200px", position: "sticky", top: 0, left: "250px", zIndex: 10, backgroundColor: "#f3f2f2", borderBottom: "1px solid #dddbda", boxShadow: "2px 0 5px -2px rgba(0,0,0,0.1)" } }, 
                    h("div", { className: "slds-truncate", title: "API Name" }, "API Name")
                 ),
                  // Profile/User Headers
@@ -1776,181 +1395,6 @@ class App extends React.Component {
     );
   }
 
-  renderFilterModal() {
-      const { filterModalOpen, comparisonData, hiddenColumns, availableItems } = this.state;
-      if (!filterModalOpen || !comparisonData || !comparisonData.rows) return null;
-
-      const items = comparisonData.rows;
-      
-      // Map row names back to available items to get metadata (License, Counts)
-      // Note: comparisonData.rows are Names. availableItems have Name/Label.
-      const rowItems = items.map(rName => {
-           const found = availableItems.find(i => (i.Name === rName || i.Label === rName));
-           return found || { Name: rName, Label: rName, License: "Other", ActiveCount: 0, InactiveCount: 0, Id: rName };
-      });
-
-      // Group by License
-      const grouped = {};
-      const sortedLicenses = ["Salesforce", "Service Cloud", "Customer Portal Manager"]; // Priority order example
-      rowItems.forEach(item => {
-          const lic = item.License || "Other";
-          if (!grouped[lic]) grouped[lic] = [];
-          grouped[lic].push(item);
-      });
-      
-      const licenseKeys = Object.keys(grouped).sort((a,b) => {
-          if (a === "Other") return 1;
-          if (b === "Other") return -1;
-          return a.localeCompare(b);
-      });
-
-      const selectedCount = items.length - hiddenColumns.length;
-
-      // Teal Button Style (copied from Export buttons)
-      const tealBtnStyle = {
-           backgroundColor: "#00b5ad",
-           color: "white",
-           border: "none",
-           borderRadius: "4px",
-           padding: "0 12px",
-           lineHeight: "30px", // Slightly taller for modal header
-           fontSize: "0.85rem",
-           fontWeight: "500",
-           cursor: "pointer",
-           marginRight: "8px"
-      };
-
-      return h("div", { className: "slds-modal slds-fade-in-open slds-modal_large", "aria-modal": "true", role: "dialog" }, // Large modal
-          h("div", { className: "slds-modal__container", style: { width: "90%", maxWidth: "1000px" } },
-              
-              // Header
-              h("div", { className: "slds-modal__header", style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1rem" } },
-                  h("div", { style: { display: "flex", alignItems: "center" } },
-                      // Only Active Users Button
-                      h("button", { 
-                          style: tealBtnStyle,
-                          onClick: () => {
-                              const newHidden = [];
-                              rowItems.forEach(item => {
-                                  if (item.ActiveCount === 0) newHidden.push(item.Name); // Hide inactive
-                              });
-                              this.setState({ hiddenColumns: newHidden });
-                          }
-                      }, "Only Active Users"),
-                      
-                      // Restore Selection Button
-                      h("button", { 
-                          style: tealBtnStyle,
-                           onClick: () => this.setState({ hiddenColumns: [] }) // Restore to show all
-                      }, "Restore Selection"),
-
-                      // Count Badge
-                      h("span", { 
-                          style: { 
-                              backgroundColor: "#e0e0e0", 
-                              borderRadius: "50%", 
-                              width: "32px", height: "32px", 
-                              display: "flex", alignItems: "center", justifyContent: "center",
-                              fontWeight: "bold", color: "#3e3e3c",
-                              fontSize: "0.9rem"
-                          } 
-                      }, selectedCount)
-                  ),
-
-                  h("div", {}, 
-                       h("button", { className: "slds-button slds-button_neutral", onClick: () => this.setState({ filterModalOpen: false }) }, "Cancel"),
-                       h("button", { className: "slds-button slds-button_brand", onClick: () => this.setState({ filterModalOpen: false }) }, "Apply")
-                  )
-              ),
-
-              // Content (Table)
-              h("div", { className: "slds-modal__content slds-p-around_none", style: { overflow: "auto", maxHeight: "70vh" } },
-                   h("table", { className: "slds-table slds-table_cell-buffer slds-table_bordered slds-table_fixed-layout" },
-                       h("thead", {},
-                           h("tr", { className: "slds-line-height_reset" },
-                               h("th", { style: { width: "40px", padding: "0 8px" } }, 
-                                   h("div", { className: "slds-checkbox" },
-                                       h("input", { type: "checkbox", id: "profile-all", 
-                                           checked: hiddenColumns.length === 0,
-                                           onChange: (e) => {
-                                               this.setState({ hiddenColumns: e.target.checked ? [] : items });
-                                           }
-                                       }),
-                                       h("label", { className: "slds-checkbox__label", htmlFor: "profile-all" }, h("span", { className: "slds-checkbox_faux" }))
-                                   )
-                               ),
-                               h("th", { scope: "col", style: { width: "30px" } }), // Link column
-                               h("th", { scope: "col" }, h("div", { className: "slds-truncate", title: "Profile Name" }, "Profile Name")),
-                               h("th", { scope: "col", style: { width: "100px", textAlign: "center" } }, h("div", { className: "slds-truncate", title: "Active Users" }, "Active U...")),
-                               h("th", { scope: "col", style: { width: "100px", textAlign: "center" } }, h("div", { className: "slds-truncate", title: "Inactive Users" }, "Inactive...")),
-                               h("th", { scope: "col", style: { width: "80px" } }, h("div", { className: "slds-truncate", title: "User List" }, "User List"))
-                           )
-                       ),
-                       h("tbody", {},
-                           licenseKeys.map(lic => {
-                               const groupItems = grouped[lic];
-                               const allGroupVisible = groupItems.every(i => !hiddenColumns.includes(i.Name));
-                               
-                               return [
-                                   // Group Header
-                                   h("tr", { key: lic, style: { backgroundColor: "#fff9c4" } }, // Yellow header
-                                       h("td", { colSpan: 6, style: { padding: "8px 12px", fontWeight: "bold", borderBottom: "1px solid #d8dde6" } }, 
-                                            `${lic} (${groupItems.length} items)`
-                                       )
-                                   ),
-                                   // Rows
-                                   ...groupItems.map(item => {
-                                       const isHidden = hiddenColumns.includes(item.Name);
-                                       return h("tr", { key: item.Name, style: { backgroundColor: "#eef4ff" } }, // Blue row
-                                           h("td", { className: "slds-text-align_right", style: { padding: "0 8px" } },
-                                               h("div", { className: "slds-checkbox" },
-                                                   h("input", { 
-                                                       type: "checkbox", 
-                                                       id: `p-${item.Name}`, 
-                                                       checked: !isHidden,
-                                                       onChange: (e) => {
-                                                           const newHidden = e.target.checked 
-                                                               ? hiddenColumns.filter(c => c !== item.Name)
-                                                               : [...hiddenColumns, item.Name];
-                                                           this.setState({ hiddenColumns: newHidden });
-                                                       }
-                                                   }),
-                                                   h("label", { className: "slds-checkbox__label", htmlFor: `p-${item.Name}` }, h("span", { className: "slds-checkbox_faux" }))
-                                               )
-                                           ),
-                                           h("td", {},
-                                              h("a", { href: `/${item.Id}`, target: "_blank", tabIndex: -1 }, 
-                                                  h("svg", { className: "slds-icon slds-icon_x-small slds-icon-text-default", style: { width: "16px", height: "16px" } }, h("use", { xlinkHref: "symbols.svg#link" }))
-                                              )
-                                           ),
-                                           h("td", {}, h("div", { className: "slds-truncate", title: item.Label || item.Name }, item.Label || item.Name)),
-                                           h("td", { style: { textAlign: "center" } }, 
-                                                h("div", { style: { display: "inline-flex", alignItems: "center" } },
-                                                    h("svg", { className: "slds-icon slds-icon_xx-small slds-m-right_xx-small", style: { fill: "#333", width: "12px", height: "12px" } }, h("use", { xlinkHref: "symbols.svg#user" })),
-                                                    item.ActiveCount
-                                                )
-                                           ),
-                                           h("td", { style: { textAlign: "center" } }, 
-                                                h("div", { style: { display: "inline-flex", alignItems: "center" } },
-                                                    h("svg", { className: "slds-icon slds-icon_xx-small slds-m-right_xx-small", style: { fill: "#706e6b", width: "12px", height: "12px" } }, h("use", { xlinkHref: "symbols.svg#user" })), // Should be outline/inactive
-                                                    item.InactiveCount
-                                                )
-                                           ),
-                                           h("td", {}, 
-                                              (item.ActiveCount + item.InactiveCount > 0) && h("button", { className: "slds-button slds-button_x-small slds-button_brand" }, "List") // Placeholder for User List
-                                           )
-                                       );
-                                   })
-                               ];
-                           })
-                       )
-                   )
-              )
-          ),
-          h("div", { className: "slds-backdrop slds-backdrop_open" })
-      );
-  }
-
   renderPicker() {
       const { selectedCategory, availableItems, selectedItems, isLoading, filterText } = this.state;
       if (!selectedCategory) return h("div", { className: "slds-p-around_medium" }, "Select a category to start.");
@@ -1958,33 +1402,20 @@ class App extends React.Component {
       const filteredItems = availableItems.filter(i => (i.Label || i.Name).toLowerCase().includes(filterText.toLowerCase()));
 
       return h("div", { className: "slds-p-around_medium", style: { flex: "0 0 auto", display: "flex", flexDirection: "column", maxHeight: "50%" } },
+          // Header and description removed as per user request
           
           // Section Toggles
           (selectedCategory.id === "profiles" || selectedCategory.id === "permSets") && h("div", { className: "slds-m-bottom_small" },
                h("div", { style: { display: "flex", flexWrap: "wrap", gap: "8px" } },
                    (selectedCategory.id === "profiles" ? PROFILE_SECTIONS : PERM_SET_SECTIONS).map(sec => {
                        const isActive = (this.state.activeSubSections || []).includes(sec);
-                       let legacyId = "";
-                       switch (sec) {
-                           case "System Permissions": legacyId = "getSystemPermissionButton"; break;
-                           case "Object Permissions": legacyId = "getObjectPermissionButton"; break;
-                           case "Field-Level Security": legacyId = "getFieldPermissionButton"; break;
-                           case "Page Layout Assignment": legacyId = "getLayoutAssignButton"; break;
-                           case "Apex Class Access": legacyId = "getClassAccessButton"; break;
-                           case "Visualforce Page Access": legacyId = "getPageAccessButton"; break;
-                           case "Tab Settings": legacyId = "getTabAccessButton"; break;
-                           case "App Settings": legacyId = "getAppAccessButton"; break;
-                           case "Login Restriction": legacyId = "getAccessRestrictionButton"; break;
-                           case "Permission Set Group": legacyId = "getPermissionSetGroupButton"; break;
-                           case "Permission Set Assignment": legacyId = "getPermissionSetAssignButton"; break;
-                       }
                        return h("button", {
                            key: sec,
-                           id: legacyId, // Legacy ID for compatibility
                            className: "slds-button",
                            onClick: () => {
-                               // Single Select Behavior as requested: "button at a time one can be active"
-                               this.setState({ activeSubSections: [sec] });
+                               const current = this.state.activeSubSections || [];
+                               const newSections = current.includes(sec) ? current.filter(s => s !== sec) : [...current, sec];
+                               this.setState({ activeSubSections: newSections });
                            },
                            style: {
                                backgroundColor: isActive ? "#008a90" : "white",
@@ -2005,11 +1436,10 @@ class App extends React.Component {
           h("div", { className: "slds-form-element slds-m-bottom_small" },
               h("div", { className: "slds-form-element__control slds-input-has-icon slds-input-has-icon_right" },
                   h("input", { 
-                       type: "text", 
-                       id: "searchCells", // Legacy ID
-                       className: "slds-input", 
-                       placeholder: "", // Text removed as requested
-                       value: filterText,
+                      type: "text", 
+                      className: "slds-input", 
+                      placeholder: `Filter ${selectedCategory.label}...`,
+                      value: filterText,
                       onChange: (e) => this.setState({ filterText: e.target.value })
                    }),
                    filterText && h("button", { 
@@ -2028,51 +1458,49 @@ class App extends React.Component {
                   borderRadius: "0.25rem", 
                   backgroundColor: "#f3f2f2", /* Light background for contrast with white chips */
                   padding: "0.5rem",
-                  display: "block", // Changed from flex to block for the table
+                  display: "flex",
+                  flexWrap: "wrap",
                   alignContent: "flex-start",
                   gap: "6px"
               } 
           },
               filteredItems.length === 0 
-                ? null // "No items found" removed as requested
-                 : (this.state.selectedCategory.id === "profiles" || this.state.selectedCategory.id === "permSets")
-                   ? this.renderPickerTable(filteredItems)
-                   :  h("div", { style: { display: "flex", flexWrap: "wrap", gap: "6px" } }, 
-                        filteredItems.map(item => {
-                        const isSelected = !!selectedItems.find(i => i.Id === item.Id);
-                        return h("button", { 
-                            key: item.Id, 
-                            className: "slds-button",
-                            title: item.Label || item.Name,
-                            onClick: () => this.onItemSelect({ target: { checked: !isSelected } }, item), 
-                            style: { 
-                                display: "inline-flex", 
-                                alignItems: "center", 
-                                border: `1px solid ${isSelected ? "#0070d2" : "#dddbda"}`, 
-                                borderRadius: "1rem", 
-                                padding: "4px 10px", 
-                                backgroundColor: isSelected ? "#0070d2" : "white",
-                                color: isSelected ? "white" : "#080707",
-                                cursor: "pointer", 
-                                fontSize: "0.8125rem",
-                                lineHeight: "1.2",
-                                boxShadow: isSelected ? "0 2px 2px 0 rgba(0,0,0,0.1)" : "none",
-                                transition: "all 0.1s"
-                            }
-                        },
-                            h("span", { className: `slds-icon_containerBuilder slds-m-right_xx-small`, style: { transform: "scale(0.8)" } },
-                              h("svg", { className: "slds-icon slds-icon_x-small", style: { fill: isSelected ? "white" : "currentColor" }, "aria-hidden": "true" }, 
-                                  h("use", { xlinkHref: `symbols.svg#${selectedCategory.icon || "custom_apps"}` })
-                              )
-                            ),
-                            h("span", { className: "slds-truncate", style: { maxWidth: "200px" } }, item.Label || item.Name)
-                        );
-                      })
-                   )
+                ? h("div", { className: "slds-text-color_weak slds-p-horizontal_small" }, "No items found")
+                : filteredItems.map(item => {
+                     const isSelected = !!selectedItems.find(i => i.Id === item.Id);
+                     return h("button", { 
+                         key: item.Id, 
+                         className: "slds-button",
+                         title: item.Label || item.Name,
+                         onClick: () => this.onItemSelect({ target: { checked: !isSelected } }, item), // Reuse existing handler logic
+                         style: { 
+                             display: "inline-flex", 
+                             alignItems: "center", 
+                             border: `1px solid ${isSelected ? "#0070d2" : "#dddbda"}`, 
+                             borderRadius: "1rem", 
+                             padding: "4px 10px", 
+                             backgroundColor: isSelected ? "#0070d2" : "white",
+                             color: isSelected ? "white" : "#080707",
+                             cursor: "pointer", 
+                             fontSize: "0.8125rem",
+                             lineHeight: "1.2",
+                             boxShadow: isSelected ? "0 2px 2px 0 rgba(0,0,0,0.1)" : "none",
+                             transition: "all 0.1s"
+                         }
+                     },
+                         h("span", { className: `slds-icon_containerBuilder slds-m-right_xx-small`, style: { transform: "scale(0.8)" } },
+                           // Use category icon or generic. White icon if selected.
+                           h("svg", { className: "slds-icon slds-icon_x-small", style: { fill: isSelected ? "white" : "currentColor" }, "aria-hidden": "true" }, 
+                               h("use", { xlinkHref: `symbols.svg#${selectedCategory.icon || "custom_apps"}` })
+                           )
+                         ),
+                         h("span", { className: "slds-truncate", style: { maxWidth: "200px" } }, item.Label || item.Name)
+                     );
+                 })
           ),
           
-          /* Show count for non-table views ONLY, since table has its own selection info */
-          (selectedCategory.id !== "profiles" && selectedCategory.id !== "permSets" && selectedItems.length > 0) && h("div", { className: "slds-m-top_x-small slds-text-color_weak slds-text-body_small" }, 
+          // Helper text or count
+          selectedItems.length > 0 && h("div", { className: "slds-m-top_x-small slds-text-color_weak slds-text-body_small" }, 
               `${selectedItems.length} item${selectedItems.length !== 1 ? 's' : ''} selected`
           ),
 
@@ -2081,7 +1509,7 @@ class App extends React.Component {
                   className: "slds-button slds-button_brand", 
                   disabled: (selectedCategory.id !== "audit" && selectedItems.length < 1) || isLoading,
                   onClick: this.onSimpleCompare
-              }, isLoading ? "Processing..." : (selectedCategory.id === "audit" ? "View Audit Log" : "Compare")) // "Selected" removed
+              }, isLoading ? "Processing..." : (selectedCategory.id === "audit" ? "View Audit Log" : "Compare Selected"))
           )
       );
   }
