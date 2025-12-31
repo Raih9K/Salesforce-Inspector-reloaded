@@ -130,6 +130,7 @@ class App extends React.PureComponent {
       exportHref: "data-export.html?" + hostArg,
       importHref: "data-import.html?" + hostArg,
       eventMonitorHref: "event-monitor.html?" + hostArg,
+      orgCompareHref: "org-compare.html?" + hostArg,
       fieldCreatorHref: "field-creator.html?" + hostArg,
       limitsHref: "limits.html?" + hostArg,
       latestNotesViewed:
@@ -273,6 +274,7 @@ class App extends React.PureComponent {
       h: ["click", "homeBtn"],
       p: ["click", "optionsBtn"],
       m: ["click", "eventMonitorBtn"],
+      c: ["click", "orgCompareBtn"],
       o: ["tab", "objectTab"],
       u: ["tab", "userTab"],
       s: ["tab", "shortcutTab"],
@@ -378,6 +380,7 @@ class App extends React.PureComponent {
       exportHref,
       importHref,
       eventMonitorHref,
+      orgCompareHref,
       fieldCreatorHref,
       limitsHref,
       isFieldsPresent,
@@ -656,6 +659,40 @@ class App extends React.PureComponent {
                   className: "page-button slds-button slds-button_neutral",
                 },
                 h("span", {}, "Event ", h("u", {}, "M"), "onitor")
+              )
+            ),
+            h(
+              "div",
+              {
+                className:
+                "slds-col slds-size_1-of-1 slds-p-horizontal_xx-small slds-m-bottom_xx-small",
+              },
+              h(
+                "a",
+                {
+                  ref: "orgCompareBtn",
+                  href: orgCompareHref,
+                  target: linkTarget,
+                  className: "page-button slds-button slds-button_neutral",
+                },
+                h("span", {}, "Org ", h("u", {}, "C"), "omparison")
+              )
+            ),
+            h(
+              "div",
+              {
+                className:
+                "slds-col slds-size_1-of-1 slds-p-horizontal_xx-small slds-m-bottom_xx-small",
+              },
+              h(
+                "a",
+                {
+                  href: "profile-compare.html?" + hostArg,
+                  target: linkTarget,
+                  className: "page-button slds-button slds-button_neutral",
+                  style: { borderLeft: "4px solid #0070d2" }
+                },
+                h("span", {}, "Profile Compare (Legacy)")
               )
             )
           ),

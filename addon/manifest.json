@@ -9,6 +9,7 @@
   "action": {
     "default_title": "Open popup"
   },
+  "default_locale": "en",
   "minimum_chrome_version": "88",
   "permissions": [
     "cookies"
@@ -83,6 +84,7 @@
         "field-creator.html",
         "options.html",
         "event-monitor.html",
+        "org-compare.html",
         "flow-scanner.html"
       ],
       "matches": [

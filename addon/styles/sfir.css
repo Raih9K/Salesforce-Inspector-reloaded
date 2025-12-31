@@ -1,108 +1,308 @@
 :root {
-    --sfir-custom-color: var(--slds-g-color-surface-inverse-1, var(--slds-g-color-brand-base-20));
+  --sfir-custom-color: var(
+    --slds-g-color-surface-inverse-1,
+    var(--slds-g-color-brand-base-20)
+  );
 }
 
 .sfir-display-popover-target {
-    visibility: hidden;
+  visibility: hidden;
 }
 
 .sfir-display-popover-trigger {
-    cursor: pointer;
+  cursor: pointer;
 }
 
 .sfir-display-popover-trigger:hover .sfir-display-popover-target {
-    visibility: visible;
-    z-index: 1002;
+  visibility: visible;
+  z-index: 1002;
 }
 
 .slds-builder-header.sfir-header-override {
-    background-color: var(--sfir-custom-color);
+  background-color: var(--sfir-custom-color);
 }
 
 .sfir-page-container {
-    display: flex;
-    flex-direction: column;
-    height: calc(100vh - 4rem);
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 4rem);
 }
 
-.sfir-full-height{
-    height: 100%;
+.sfir-full-height {
+  height: 100%;
 }
 
-.sfir-full-width{
-    width: 100%;
+.sfir-full-width {
+  width: 100%;
 }
 
 html:has(body.sfir-prod),
 .sfir-prod {
-    background-color: #e0a4b5 !important;
-    background-repeat: no-repeat !important;
-    background-size: contain !important;
-    background-attachment: fixed !important;
+  background-color: #e0a4b5 !important;
+  background-repeat: no-repeat !important;
+  background-size: contain !important;
+  background-attachment: fixed !important;
 }
 
-body{
-    margin: 0px;
+body {
+  margin: 0px;
 }
 
-.sfir-border-none{
-    border: none !important;
+.sfir-border-none {
+  border: none !important;
 }
 
 /* Dropdown menu styles */
 .slds-dropdown__item.sfir-justify-left > a {
-    justify-content: left;
+  justify-content: left;
 }
 
 /* Custom icon styles for dropdown menu actions */
 a .icon {
-    display: inline-block;
-    width: 1rem;
-    height: 1rem;
-    margin-right: 8px;
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  margin-right: 8px;
 }
 
 a.view-salesforce .icon {
-    -webkit-mask-repeat: no-repeat;
-    -webkit-mask-size: 1rem;
-    -webkit-mask-image: url(../images/salesforce1.svg);
-    -webkit-mask-position: center;
-    background-color: #009DDC;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: 1rem;
+  -webkit-mask-image: url(../images/salesforce1.svg);
+  -webkit-mask-position: center;
+  background-color: #009ddc;
 }
 
 a.view-inspector .icon {
-    -webkit-mask-repeat: no-repeat;
-    -webkit-mask-size: 1rem;
-    -webkit-mask-image: url(../images/salesforce-inspector-logo.svg);
-    -webkit-mask-position: center;
-    background-color: #D8BE5F;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: 1rem;
+  -webkit-mask-image: url(../images/salesforce-inspector-logo.svg);
+  -webkit-mask-position: center;
+  background-color: #d8be5f;
 }
 
 a.query-record .icon {
-    -webkit-mask-repeat: no-repeat;
-    -webkit-mask-size: 1rem;
-    -webkit-mask-image: url(../images/record_lookup.svg);
-    -webkit-mask-position: center;
-    background-color: #706E6B;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: 1rem;
+  -webkit-mask-image: url(../images/record_lookup.svg);
+  -webkit-mask-position: center;
+  background-color: #706e6b;
 }
 
 a.copy-id .icon {
-    -webkit-mask-repeat: no-repeat;
-    -webkit-mask-size: 1rem;
-    -webkit-mask-image: url(../images/copy.svg);
-    -webkit-mask-position: center;
-    background-color: #706E6B;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: 1rem;
+  -webkit-mask-image: url(../images/copy.svg);
+  -webkit-mask-position: center;
+  background-color: #706e6b;
 }
 
 a.download-salesforce .icon {
-    -webkit-mask-repeat: no-repeat;
-    -webkit-mask-size: 1rem;
-    -webkit-mask-image: url(../images/down.svg);
-    -webkit-mask-position: center;
-    background-color: #61fab8;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: 1rem;
+  -webkit-mask-image: url(../images/down.svg);
+  -webkit-mask-position: center;
+  background-color: #61fab8;
 }
 
 a.copy-id,
 a.download-salesforce {
-    cursor: pointer;
+  cursor: pointer;
+}
+
+/* Legacy Org Compare Styles */
+body {
+  background-color: white; /* Ensure visible background */
+  min-height: 100vh;
+}
+
+#root {
+  padding: 20px;
+  background-color: #f3f2f2; /* SLDS background color */
+  min-height: 100vh;
+}
+
+.mdiv {
+  background: white;
+  padding: 20px;
+  border-radius: 0.25rem;
+  box-shadow: 0 2px 2px 0 rgba(0, 0, 0, 0.1);
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.tab {
+  overflow: hidden;
+  border: 1px solid #dddbda;
+  background-color: #f3f2f2;
+  display: flex;
+  border-radius: 0.25rem 0.25rem 0 0;
+}
+
+.tablinks {
+  background-color: inherit;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  padding: 14px 16px;
+  transition: 0.3s;
+  font-size: 1rem;
+  color: #3e3e3c;
+}
+
+.tablinks:hover {
+  background-color: #ddd;
+}
+
+#mainDiv1,
+#mainDiv2 {
+  border: 1px solid #dddbda;
+  border-top: none;
+  padding: 20px;
+  background: white;
+  border-radius: 0 0 0.25rem 0.25rem;
+}
+
+.crazyCompareButton,
+.crazyPrintButton {
+  background-color: #0176d3; /* SLDS Brand Blue */
+  color: white;
+  padding: 8px 16px;
+  border: 1px solid #0176d3;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 10px;
+  margin-right: 10px;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  transition: border 0.15s linear, background-color 0.15s linear;
+}
+
+.crazyCompareButton:hover,
+.crazyPrintButton:hover {
+  background-color: #014486;
+  border-color: #014486;
+}
+
+/* Select styling to match SLDS */
+select {
+  background-color: white;
+  border: 1px solid #dddbda;
+  border-radius: 4px;
+  width: 100%;
+  padding: 0 16px 0 12px;
+  height: 32px;
+  line-height: 1.875rem;
+  margin-bottom: 10px;
+  max-width: 300px;
+  margin-right: 20px;
+}
+
+/* Table Styles if generated */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+}
+
+th,
+td {
+  padding: 8px;
+  text-align: left;
+  font-weight: 700;
+}
+
+/* Dropdown and Select Styles */
+.dropdownLabel {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 700;
+    font-size: 0.875rem;
+    color: #3e3e3c;
+}
+
+.selectDropDownMenu {
+    /* Existing select styles cover this, but add more specificity if needed */
+    margin-top: 5px;
+}
+
+/* Spinner Styles */
+.crazySpinner {
+    border: 4px solid #f3f3f3;
+    border-radius: 50%;
+    border-top: 4px solid #3498db;
+    width: 30px;
+    height: 30px;
+    -webkit-animation: spin 2s linear infinite; /* Safari */
+    animation: spin 2s linear infinite;
+    margin: 20px auto;
+}
+
+/* Safari */
+@-webkit-keyframes spin {
+    0% { -webkit-transform: rotate(0deg); }
+    100% { -webkit-transform: rotate(360deg); }
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Filter Section Styles */
+.filterbk {
+    background-color: white;
+    padding: 15px;
+    margin-top: 20px;
+    border: 1px solid #dddbda;
+    border-radius: 0.25rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.filterbk input[type="checkbox"] {
+    margin-right: 5px !important;
+}
+
+.filterbk label {
+    margin-right: 15px !important;
+    font-size: 0.875rem;
+    color: #3e3e3c;
+}
+
+/* Styled Table Styles */
+.styled-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 25px 0;
+    font-size: 0.9em;
+    font-family: sans-serif;
+    min-width: 400px;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
+    background-color: white;
+}
+
+.styled-table thead tr {
+    background-color: #009879;
+    color: #ffffff;
+    text-align: left;
+}
+
+.styled-table th,
+.styled-table td {
+    padding: 12px 15px;
+    border: 1px solid #dddbda;
+}
+
+.styled-table tbody tr {
+    border-bottom: 1px solid #dddbda;
+}
+
+.styled-table tbody tr:nth-of-type(even) {
+    background-color: #f3f3f3;
+}
+
+.styled-table tbody tr:last-of-type {
+    border-bottom: 2px solid #009879;
 }
