@@ -1,4 +1,3 @@
-
 .input-textBox {
   width: 100%;
   font-family: inherit;
@@ -488,3 +487,13 @@ button:hover,
   border-radius: 0.25rem;
   height: 32px;
 }
+.backgroundGray {
+  background-color: #f3f3f3;
+}
+.fontSize0_8 {
+  font-size: 0.8rem;
+}
+.displayBlock {
+  display: block;
+}
+
